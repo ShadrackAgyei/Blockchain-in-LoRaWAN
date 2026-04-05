@@ -1,0 +1,82 @@
+[
+  {
+    "attack": 1,
+    "step": 1,
+    "action": "Org2MSP registers gateway with ownerOrg=Org1",
+    "expected": "REJECTED (MSP mismatch)",
+    "actual": "REJECTED: Invoke failed (RegisterGateway): Error: endorsement failure during invoke. response: status:500 mess",
+    "passed": true,
+    "details": "Error: Invoke failed (RegisterGateway): Error: endorsement failure during invoke. response: status:500 message:\"caller MSPID Org2MSP does not match owner org Org1\" \n",
+    "timestamp": "2026-03-11T17:08:12.048859+00:00"
+  },
+  {
+    "attack": 1,
+    "step": 2,
+    "action": "Org2MSP suspends Org1's gateway",
+    "expected": "REJECTED (not owner)",
+    "actual": "REJECTED: Invoke failed (UpdateGatewayStatus): Error: endorsement failure during invoke. response: status:500 ",
+    "passed": true,
+    "details": "Error: Invoke failed (UpdateGatewayStatus): Error: endorsement failure during invoke. response: status:500 message:\"only owner org can update gateway status\" \n",
+    "timestamp": "2026-03-11T17:08:15.156441+00:00"
+  },
+  {
+    "attack": 1,
+    "step": 3,
+    "action": "Org1MSP registers gateway with ownerOrg=Org1",
+    "expected": "SUCCESS",
+    "actual": "ALREADY EXISTS (still valid)",
+    "passed": true,
+    "details": "Gateway was previously registered",
+    "timestamp": "2026-03-11T17:08:15.214294+00:00"
+  },
+  {
+    "attack": 2,
+    "step": 1,
+    "action": "Register malicious gateway as Org2 (legitimate)",
+    "expected": "SUCCESS",
+    "actual": "SUCCESS",
+    "passed": true,
+    "details": "Gateway ATK_MANIP_248891 registered",
+    "timestamp": "2026-03-11T17:08:15.276255+00:00"
+  },
+  {
+    "attack": 2,
+    "step": 2,
+    "action": "Submit 5 rounds of inflated records (0 errors, RSSI=-50, SNR=12)",
+    "expected": "ACCEPTED (data accepted onto blockchain)",
+    "actual": "ACCEPTED (5/5 rounds)",
+    "passed": true,
+    "details": "TxIDs: ['tx_177324889', 'tx_177324890', 'tx_177324890', 'tx_177324890', 'tx_177324891']",
+    "timestamp": "2026-03-11T17:08:33.600515+00:00"
+  },
+  {
+    "attack": 2,
+    "step": 3,
+    "action": "Compute trust score after inflated records",
+    "expected": "~0.95 (artificially high)",
+    "actual": "Trust score: 0.9750",
+    "passed": true,
+    "details": "Score is artificially elevated (>0.8)",
+    "timestamp": "2026-03-11T17:08:39.700982+00:00"
+  },
+  {
+    "attack": 2,
+    "step": 4,
+    "action": "Audit query \u2014 flag records with RSSI > -60 or SNR > 10",
+    "expected": "Anomalies detected, immutably recorded on blockchain",
+    "actual": "Found 5 anomalous records out of 5",
+    "passed": true,
+    "details": "Anomalies: [{\"recordID\": \"FR_ATK_MANIP_248891_1773230898\", \"flags\": [\"RSSI=-50 (>-60, impossibly strong)\", \"SNR=12 (>10, unusually high)\", \"0 errors in 270 packets\"]}, {\"recordID\": \"FR_ATK_MANIP_248891_177323449",
+    "timestamp": "2026-03-11T17:08:41.750293+00:00"
+  },
+  {
+    "attack": 2,
+    "step": 5,
+    "action": "Suspend gateway + verify excluded from GetTrustedGateways(0.7)",
+    "expected": "SUSPENDED, excluded from trusted list",
+    "actual": "SUSPENDED, excluded",
+    "passed": true,
+    "details": "Trusted gateways: 9; malicious gateway excluded: True",
+    "timestamp": "2026-03-11T17:08:44.865939+00:00"
+  }
+]

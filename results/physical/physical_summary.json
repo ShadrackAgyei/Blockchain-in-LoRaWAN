@@ -1,0 +1,45 @@
+{
+  "testbed": {
+    "device_eui": "70B3D57ED0075A44",
+    "gateway_eui": "2CCF67FFFE6491D1",
+    "duration_hours": 24.3,
+    "start_time": "2026-03-30 21:06:24",
+    "end_time": "2026-03-31 21:25:37"
+  },
+  "events": {
+    "total_webhook_events": 728,
+    "events_per_hour": 29.9
+  },
+  "signal_quality": {
+    "rssi_mean": -81.66,
+    "rssi_std": 2.88,
+    "rssi_min": -91.0,
+    "rssi_max": -51.0,
+    "snr_mean": 10.79,
+    "snr_std": 1.23,
+    "snr_min": 5.5,
+    "snr_max": 14.0
+  },
+  "blockchain": {
+    "forwarding_batches": 156,
+    "total_uplinks_on_chain": 721,
+    "total_errors": 0,
+    "reliability": 1.0,
+    "trust_score": 0.8958948357598278
+  },
+  "billing": {
+    "roaming_packets": 728,
+    "total_micro_cents": 72800,
+    "debtor_org": "Org2",
+    "creditor_org": "Org1"
+  },
+  "comparison_with_simulation": {
+    "physical_trust_score": 0.8958948357598278,
+    "simulation_reliable_trust_score": 0.911,
+    "difference": 0.0151,
+    "physical_rssi_mean": -81.66,
+    "simulation_rssi_mean": -71.67,
+    "physical_snr_mean": 10.79,
+    "simulation_snr_mean": 8.33
+  }
+}
