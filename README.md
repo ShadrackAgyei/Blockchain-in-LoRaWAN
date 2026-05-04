@@ -7,7 +7,7 @@
 
 GitHub Repository
 -----------------
-  https://github.com/ShadrackAgyei/big-brain-moment
+  https://github.com/ShadrackAgyei/Blockchain-in-LoRaWAN
 
   (All source code, configuration files, scripts, and evaluation datasets
   are available in the repository above.)
