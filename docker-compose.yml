@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  # MySQL database for event caching
+  mysql:
+    image: mysql:8.0
+    container_name: lorawan-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: lorawan_events
+      MYSQL_USER: lorawan
+      MYSQL_PASSWORD: lorawan
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./config/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lorawan-network
+
+  # Webhook listener service
+  webhook-listener:
+    build:
+      context: ./webhook-listener
+      dockerfile: Dockerfile
+    container_name: lorawan-webhook-listener
+    environment:
+      - DATABASE_URL=mysql+pymysql://lorawan:lorawan@mysql:3306/lorawan_events
+      - FABRIC_GATEWAY_URL=peer0.org1.example.com:7051
+      - FABRIC_CHANNEL=lorawan-channel
+      - FABRIC_MSP_ID=Org1MSP
+      - TTN_WEBHOOK_SECRET=${TTN_WEBHOOK_SECRET:-}
+      - AGGREGATION_WINDOW_SECONDS=300
+      - AGGREGATION_MAX_BUFFER_SIZE=100
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/webhook/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - lorawan-network
+      - fabric-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: lorawan-prometheus
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - lorawan-network
+
+  # Custom Next.js Dashboard (replaces Grafana)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+    container_name: lorawan-dashboard
+    environment:
+      # This is accessed from the browser, so use localhost
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    networks:
+      - lorawan-network
+
+  # phpMyAdmin for database management
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: lorawan-phpmyadmin
+    environment:
+      - PMA_HOST=mysql
+      - PMA_PORT=3306
+    ports:
+      - "8080:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - lorawan-network
+
+  # Grafana for visualization (optional - can be removed)
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: lorawan-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - lorawan-network
+    profiles:
+      - grafana
+
+volumes:
+  mysql_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  lorawan-network:
+    driver: bridge
+  fabric-network:
+    external: true
+    name: fabric_test
