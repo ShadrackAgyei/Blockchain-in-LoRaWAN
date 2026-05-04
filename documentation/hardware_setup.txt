@@ -1,0 +1,147 @@
+================================================================================
+  HARDWARE SETUP GUIDE
+  LoRaWAN Blockchain Capstone — Shadrack Nti, Ashesi University 2026
+================================================================================
+
+This guide covers the physical hardware assembly, firmware configuration, and
+network registration steps for the LoRaWAN gateway and end devices used in
+this project.
+
+
+--------------------------------------------------------------------------------
+BILL OF MATERIALS
+--------------------------------------------------------------------------------
+
+Gateway:
+  - Raspberry Pi 5 (4 GB or 8 GB RAM)
+  - RAK5146 LoRa Concentrator module (SPI variant, EU868 or US915 band)
+  - RAK Pi HAT (Raspberry Pi LoRaWAN Concentrator HAT)
+  - Appropriate LoRa antenna (regional band-matched, e.g. 868 MHz for EU)
+  - SD card (32 GB minimum, Class 10)
+  - Power supply: USB-C 5V 5A
+
+End Device:
+  - ESP32 development board (e.g. TTGO LoRa32 v2.1 or Heltec LoRa32)
+  - LoRa module integrated on board (SX1276 / SX1278)
+  - 868 MHz or 915 MHz antenna
+
+
+--------------------------------------------------------------------------------
+GATEWAY ASSEMBLY
+--------------------------------------------------------------------------------
+
+1. Attach the RAK5146 module to the RAK Pi HAT in the M.2 slot.
+2. Connect the LoRa antenna to the iPEX/uFL connector on the RAK5146.
+   WARNING: Never power on the concentrator without an antenna connected.
+3. Mount the HAT onto the Raspberry Pi 5 GPIO header (40-pin).
+4. Insert the prepared SD card into the Raspberry Pi.
+5. Connect power.
+
+GPIO connections (RAK Pi HAT uses SPI):
+  The HAT routes SPI0 (pins 19, 21, 23, 24) and reset/power pins
+  automatically. No manual wiring is required beyond the HAT attachment.
+
+
+--------------------------------------------------------------------------------
+RASPBERRY PI OS AND FIRMWARE
+--------------------------------------------------------------------------------
+
+1. Flash Raspberry Pi OS Lite (64-bit, Bookworm) to the SD card using
+   Raspberry Pi Imager. Enable SSH and set hostname/credentials during flash.
+
+2. Boot, SSH in, and enable SPI:
+     sudo raspi-config
+     → Interface Options → SPI → Enable
+
+3. Install the Basics Station firmware:
+     git clone https://github.com/lorabasics/basicstation.git
+     cd basicstation
+     make platform=rpi variant=std
+
+4. Configure Basics Station (station.conf):
+   A template is provided at gateway/station.conf.template. Copy and edit:
+     cp gateway/station.conf.template ~/basicstation/station.conf
+   Set the LNS URI to your TTN cluster endpoint, e.g.:
+     "uri": "wss://eu1.cloud.thethings.network:8887"
+
+5. Register the gateway in TTN Console:
+   - Navigate to your TTN application → Gateways → Add Gateway
+   - Enter the Gateway EUI (printed on the RAK5146 or read via
+     gateway/setup-gateway.sh)
+   - Select frequency plan matching your antenna (EU_863_870 for EU868)
+   - Enable "Require authenticated connection"
+   - Download the .tc.key and .tc.trust files and place them in:
+       ~/basicstation/credentials/
+
+6. Start Basics Station:
+     cd ~/basicstation
+     ./station -h credentials/ station.conf
+
+   On success, the TTN Console shows the gateway as "Connected".
+
+7. (Optional) Create a systemd service for auto-start:
+     sudo cp gateway/basicstation.service /etc/systemd/system/
+     sudo systemctl enable basicstation
+     sudo systemctl start basicstation
+
+
+--------------------------------------------------------------------------------
+END DEVICE FIRMWARE (ESP32)
+--------------------------------------------------------------------------------
+
+The Arduino/PlatformIO sketch for the ESP32 end device is in devices/.
+
+Dependencies (install via Arduino Library Manager or platformio.ini):
+  - MCCI LoRaWAN LMIC library (arduino-lmic)
+  - Adafruit SSD1306 (if using OLED display)
+
+Configuration (devices/lorawan_node/config.h):
+  1. Copy the AppEUI, DevEUI, and AppKey from your TTN device registration.
+  2. Paste them in MSB byte order into config.h (the LMIC library format).
+  3. Set the regional frequency plan:
+       #define CFG_eu868 1    // for Europe
+       #define CFG_us915 1    // for North America
+
+Flashing:
+  arduino-cli compile --fqbn esp32:esp32:esp32 devices/lorawan_node
+  arduino-cli upload  --fqbn esp32:esp32:esp32 \
+    --port /dev/ttyUSB0 devices/lorawan_node
+
+The device performs OTAA join on boot and transmits a counter value every
+60 seconds. Successful joins and uplinks appear in the TTN Live Data tab.
+
+
+--------------------------------------------------------------------------------
+VALIDATING THE HARDWARE SETUP
+--------------------------------------------------------------------------------
+
+1. Gateway connected:
+   TTN Console → Gateways → your gateway → "Last seen: X seconds ago"
+
+2. Device joined:
+   TTN Console → Applications → your app → Live Data →
+   "Successfully processed join-request"
+
+3. Uplinks forwarded to webhook:
+   POST events arrive at http://localhost:8000/webhook/up
+   Check logs: docker-compose logs -f webhook-listener
+   Or: journalctl -u lorawan-webhook -f (if running as a service)
+
+4. Events on blockchain:
+   peer chaincode query -n trust \
+     -c '{"function":"GetForwardingRecords","Args":["GW001","10"]}'
+
+
+--------------------------------------------------------------------------------
+REGIONAL FREQUENCY PLAN NOTES
+--------------------------------------------------------------------------------
+
+Ghana falls within the ITU Region 1 LoRaWAN frequency plan.
+The recommended plan is EU_863_870 (EU868), which covers 863–870 MHz.
+This band is used for sub-GHz ISM operation in West Africa.
+
+Ensure the RAK5146 module variant and the antenna are rated for this band.
+Using a 915 MHz antenna on an 868 MHz system significantly reduces range.
+
+
+================================================================================

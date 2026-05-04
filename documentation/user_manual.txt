@@ -1,0 +1,268 @@
+================================================================================
+  USER MANUAL
+  LoRaWAN Blockchain Trust & Billing System
+  Shadrack Nti — Ashesi University Capstone, 2026
+================================================================================
+
+This manual covers day-to-day operation of the system once it has been
+installed and deployed according to readme.txt.
+
+
+--------------------------------------------------------------------------------
+1. STARTING AND STOPPING THE SYSTEM
+--------------------------------------------------------------------------------
+
+Start all services (from the project root):
+
+  # 1. Ensure Fabric network is running (if restarting after shutdown)
+  cd ~/fabric-samples/test-network
+  ./network.sh up
+
+  # 2. Start Docker services
+  docker-compose up -d
+
+  # 3. Start webhook listener on host (for blockchain integration)
+  cd webhook-listener
+  source venv/bin/activate
+  uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # 4. Start the dashboard (new terminal)
+  cd frontend
+  npm run dev
+
+Stop all services:
+
+  docker-compose down
+  cd ~/fabric-samples/test-network && ./network.sh down
+
+
+--------------------------------------------------------------------------------
+2. THE MONITORING DASHBOARD
+--------------------------------------------------------------------------------
+
+Open http://localhost:3000 in a browser.
+
+Home page — Overview:
+  Displays live summary cards:
+    - Total gateways registered on the blockchain
+    - Active devices sending data
+    - Forwarding events in the last hour
+    - Pending inter-organisation charges (GHS)
+
+Gateway Map:
+  Interactive map (Leaflet) showing registered gateways colour-coded by
+  trust score:
+    Green  = trust score >= 0.8 (high trust)
+    Yellow = trust score 0.5–0.79 (moderate trust)
+    Red    = trust score < 0.5 (low trust, consider investigating)
+
+  Click a gateway marker to view its EUI, owner organisation, last seen
+  timestamp, and current trust score breakdown.
+
+Event Timeline:
+  Real-time stream of forwarding events delivered via Server-Sent Events.
+  Use the filter bar to narrow by gateway EUI, device EUI, or organisation.
+
+Billing Dashboard:
+  Shows outstanding charges grouped by (source organisation, destination
+  organisation). Columns: policy ID, packet count, total charge (GHS),
+  created timestamp. The "Initiate Settlement" button creates a settlement
+  proposal on the blockchain for the selected row.
+
+
+--------------------------------------------------------------------------------
+3. REGISTERING A GATEWAY
+--------------------------------------------------------------------------------
+
+Gateways must be registered on the blockchain before their forwarding
+activity is recorded. Use the Fabric peer CLI or the provided test script.
+
+Via CLI:
+  export CORE_PEER_TLS_ENABLED=true
+  export CORE_PEER_LOCALMSPID=Org1MSP
+  export CORE_PEER_MSPCONFIGPATH=.../Org1/users/Admin@org1.../msp
+  export CORE_PEER_ADDRESS=localhost:7051
+
+  peer chaincode invoke \
+    -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com \
+    --tls --cafile $ORDERER_CA \
+    -C lorawan-channel -n trust \
+    -c '{"function":"RegisterGateway","Args":["GW001",
+         "eui-aabbccddaabbccdd","5.6037,0.1870","Org1MSP"]}'
+
+Arguments: [gatewayID, gatewayEUI, "lat,lon", ownerOrg]
+
+Verify registration:
+  peer chaincode query -C lorawan-channel -n trust \
+    -c '{"function":"GetGateway","Args":["GW001"]}'
+
+
+--------------------------------------------------------------------------------
+4. CREATING A BILLING POLICY
+--------------------------------------------------------------------------------
+
+A billing policy defines the per-packet charge for a set of devices belonging
+to one organisation when their packets are forwarded by another organisation's
+gateways.
+
+  peer chaincode invoke ... -C lorawan-channel -n billing \
+    -c '{"function":"CreatePolicy","Args":["policy-org2-v1",
+         "Org2MSP","0.001","GHS","eui-1122...,eui-3344..."]}'
+
+Arguments: [policyID, ownerOrg, ratePerPacket, currency, deviceEUIsCSV]
+
+Note: The invoke must be signed by an Org2MSP identity when ownerOrg is
+Org2MSP, because the chaincode validates the caller's MSP ID.
+
+
+--------------------------------------------------------------------------------
+5. UNDERSTANDING TRUST SCORES
+--------------------------------------------------------------------------------
+
+Trust scores are computed on demand from the forwarding history stored on
+the blockchain. The algorithm uses:
+
+  Score = 0.6 × reliability_score + 0.4 × signal_quality_score
+
+  - reliability_score = 1 − (error_rate), weighted by recency
+  - signal_quality_score = normalised RSSI and SNR averages
+  - Records older than 30 days are down-weighted by exponential decay
+  - Gateways with no recent activity receive a 5% inactivity penalty per
+    evaluation cycle
+
+To compute and store a trust score:
+  peer chaincode invoke ... -n trust \
+    -c '{"function":"ComputeTrustScore","Args":["GW001"]}'
+
+To query trusted gateways above a threshold (0.0–1.0):
+  peer chaincode query -n trust \
+    -c '{"function":"GetTrustedGateways","Args":["0.7"]}'
+
+Trust scores are also visible on the Gateway Map in the dashboard.
+
+
+--------------------------------------------------------------------------------
+6. BILLING WORKFLOW
+--------------------------------------------------------------------------------
+
+The billing lifecycle has four stages:
+
+  ACCUMULATING → PENDING_SETTLEMENT → SETTLED
+
+  1. Charges accumulate automatically as the webhook listener records
+     forwarding events and the aggregator flushes batches to the blockchain.
+
+  2. Query pending charges:
+       peer chaincode query -n billing \
+         -c '{"function":"GetPendingCharges","Args":["Org1MSP","Org2MSP"]}'
+
+  3. Initiate a settlement (creates a proposal on-chain):
+       peer chaincode invoke -n billing \
+         -c '{"function":"InitiateSettlement","Args":
+              ["settle-001","Org1MSP","Org2MSP","2.50","GHS"]}'
+
+  4. Confirm payment (called by the paying organisation):
+       peer chaincode invoke -n billing \
+         -c '{"function":"ConfirmPayment","Args":["settle-001"]}'
+
+The dashboard Billing page can initiate settlements via the UI; confirmation
+must currently be done via the CLI or an API call.
+
+
+--------------------------------------------------------------------------------
+7. THE WEBHOOK LISTENER
+--------------------------------------------------------------------------------
+
+The webhook listener receives HTTP POST events from The Things Network (TTN)
+and bridges them to the blockchain and MySQL database.
+
+Health check:
+  curl http://localhost:8000/webhook/health
+
+Manually post a test event (simulates a TTN uplink):
+  curl -X POST http://localhost:8000/webhook/up \
+    -H "Content-Type: application/json" \
+    -d @tests/sample_uplink.json
+
+The aggregator buffers forwarding events per gateway for up to 300 seconds
+(configurable via AGGREGATION_WINDOW_SECONDS) or until 100 events accumulate
+(AGGREGATION_MAX_BUFFER_SIZE), then flushes a single RecordForwardingBatch
+call to the blockchain to reduce transaction overhead.
+
+OrgResolver mapping (webhook-listener/app/main.py):
+  The OrgResolver maps gateway EUIs to their owner organisations. If a
+  gateway EUI is not in the map, events from that gateway are still saved
+  to MySQL but are not submitted to the blockchain. Add new EUIs to the
+  mapping dictionary as new gateways are registered.
+
+
+--------------------------------------------------------------------------------
+8. RUNNING EVALUATIONS
+--------------------------------------------------------------------------------
+
+The tests/ directory contains three evaluation scripts:
+
+  python3 tests/simulate.py
+    Generates synthetic forwarding events and writes them to the blockchain.
+    Creates two roaming scenarios (Org1 gateway forwarding Org2 devices and
+    vice versa) and a simulated Sybil attack. Results are written to results/.
+
+  python3 tests/analyze.py
+    Reads the results CSVs and generates charts (PNG) for trust score
+    convergence, billing accuracy, and throughput. Output goes to results/.
+
+  python3 tests/attack_demo.py
+    Demonstrates the Sybil attack detection: registers a set of colluding
+    gateways, floods the ledger with fraudulent forwarding records, then
+    shows that the trust score algorithm assigns low scores to those gateways.
+
+Prerequisites: Fabric network running, chaincodes deployed, Python venv active.
+
+
+--------------------------------------------------------------------------------
+9. GRAFANA DASHBOARDS
+--------------------------------------------------------------------------------
+
+Navigate to http://localhost:3001 and log in with admin / admin.
+
+Pre-provisioned dashboards:
+  - LoRaWAN Overview       Gateway counts, event rates, error rates
+  - Trust Score History    Per-gateway trust score over time
+  - Billing Summary        Charge accumulation and settlement status
+  - Blockchain Latency     Fabric invoke and query response times
+  - Webhook Listener       Request throughput, queue depth, flush rate
+
+Dashboards are provisioned automatically from config/grafana/. To reset
+them, restart the Grafana container: docker-compose restart grafana
+
+
+--------------------------------------------------------------------------------
+10. TROUBLESHOOTING
+--------------------------------------------------------------------------------
+
+Symptom: Chaincode invoke returns "MVCC_READ_CONFLICT"
+  Cause:   Two transactions touched the same key in the same block.
+  Fix:     Add a 2–3 second sleep between consecutive invokes that modify the
+           same gateway or charge record.
+
+Symptom: Webhook returns 200 but no blockchain record appears
+  Cause:   The listener is running in Docker and cannot reach the peer binary.
+  Fix:     Run the listener on the host (see readme.txt Step 3).
+
+Symptom: "Error: endorsement failure during invoke" for CreatePolicy
+  Cause:   The invocation MSP does not match the policy's ownerOrg.
+  Fix:     Switch CORE_PEER_LOCALMSPID and CORE_PEER_MSPCONFIGPATH to the
+           correct organisation before invoking.
+
+Symptom: Trust score always returns 0.0
+  Cause:   No forwarding batches have been recorded for that gateway yet.
+  Fix:     Run simulate.py or post real forwarding events, then re-invoke
+           ComputeTrustScore.
+
+Symptom: Dashboard shows "Failed to fetch" errors
+  Cause:   The webhook listener API is not reachable at its configured URL.
+  Fix:     Check NEXT_PUBLIC_API_URL in frontend/.env.local and verify the
+           listener is running on that address.
+
+
+================================================================================

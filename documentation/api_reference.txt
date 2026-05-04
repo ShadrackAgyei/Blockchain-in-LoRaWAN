@@ -1,0 +1,224 @@
+================================================================================
+  API REFERENCE — Webhook Listener (FastAPI)
+  LoRaWAN Blockchain Capstone, Shadrack Nti, Ashesi University 2026
+================================================================================
+
+Base URL: http://localhost:8000
+
+All request and response bodies use JSON. Timestamps are ISO 8601 UTC strings.
+
+
+--------------------------------------------------------------------------------
+WEBHOOK ENDPOINTS
+--------------------------------------------------------------------------------
+
+POST /webhook/up
+  Receives an uplink message from The Things Network.
+  Called automatically by TTN; can also be called manually for testing.
+
+  Request body (TTN uplink webhook payload):
+    {
+      "end_device_ids": {
+        "device_id": "device-001",
+        "dev_eui": "0011223344556677",
+        "application_ids": { "application_id": "my-app" }
+      },
+      "uplink_message": {
+        "rx_metadata": [
+          {
+            "gateway_ids": { "gateway_id": "gw-001", "eui": "AABBCCDDAABBCCDD" },
+            "rssi": -85,
+            "snr": 7.2,
+            "time": "2026-01-15T10:00:00Z"
+          }
+        ],
+        "f_cnt": 42,
+        "frm_payload": "AQID"
+      },
+      "received_at": "2026-01-15T10:00:00.123Z"
+    }
+
+  Response 200:
+    { "status": "accepted", "event_id": 1234 }
+
+  Response 400:
+    { "detail": "Invalid payload structure" }
+
+
+POST /webhook/join
+  Receives a device join-accept event from TTN (OTAA).
+  Logged to MySQL; no blockchain action is triggered.
+
+  Response 200:
+    { "status": "accepted" }
+
+
+GET /webhook/health
+  Health check endpoint.
+
+  Response 200:
+    {
+      "status": "healthy",
+      "database": "connected",
+      "fabric": "connected",
+      "queue_depth": 3
+    }
+
+  Response 503:
+    {
+      "status": "degraded",
+      "database": "connected",
+      "fabric": "disconnected",
+      "queue_depth": 0
+    }
+
+
+--------------------------------------------------------------------------------
+METRICS ENDPOINT
+--------------------------------------------------------------------------------
+
+GET /metrics
+  Prometheus-compatible metrics scrape endpoint.
+
+  Key metrics exposed:
+    lorawan_events_received_total          Counter — total webhook events received
+    lorawan_events_flushed_total           Counter — total batch flushes to Fabric
+    lorawan_fabric_invoke_duration_seconds Histogram — Fabric invoke latency
+    lorawan_fabric_query_duration_seconds  Histogram — Fabric query latency
+    lorawan_queue_depth                    Gauge — current aggregator buffer size
+    lorawan_db_write_errors_total          Counter — MySQL write failures
+
+
+--------------------------------------------------------------------------------
+GATEWAY ENDPOINTS
+--------------------------------------------------------------------------------
+
+GET /gateways
+  Returns all gateways registered on the blockchain.
+
+  Response 200:
+    [
+      {
+        "gateway_id": "GW001",
+        "eui": "eui-aabbccddaabbccdd",
+        "location": "5.6037,0.1870",
+        "owner_org": "Org1MSP",
+        "status": "active",
+        "trust_score": 0.87,
+        "last_seen": "2026-01-15T09:55:00Z"
+      }
+    ]
+
+
+GET /gateways/{gateway_id}
+  Returns details for a single gateway.
+
+  Path parameter: gateway_id — the gateway ID used at registration
+
+  Response 200: single gateway object (same schema as above)
+  Response 404: { "detail": "Gateway not found" }
+
+
+GET /gateways/trusted?min_score=0.7
+  Returns gateways with a trust score at or above min_score.
+
+  Query parameter: min_score (float, 0.0–1.0, default 0.5)
+
+  Response 200: array of gateway objects
+
+
+--------------------------------------------------------------------------------
+BILLING ENDPOINTS
+--------------------------------------------------------------------------------
+
+GET /billing/charges?src_org=Org1MSP&dst_org=Org2MSP
+  Returns pending charges from src_org owed to dst_org.
+
+  Response 200:
+    [
+      {
+        "charge_id": "chg-0042",
+        "policy_id": "policy-org2-v1",
+        "src_org": "Org1MSP",
+        "dst_org": "Org2MSP",
+        "packet_count": 320,
+        "total_amount": "0.32",
+        "currency": "GHS",
+        "status": "ACCUMULATING",
+        "created_at": "2026-01-15T08:00:00Z"
+      }
+    ]
+
+
+POST /billing/settlements
+  Initiates a settlement proposal on the blockchain.
+
+  Request body:
+    {
+      "settlement_id": "settle-001",
+      "src_org": "Org1MSP",
+      "dst_org": "Org2MSP",
+      "amount": "2.50",
+      "currency": "GHS"
+    }
+
+  Response 201:
+    { "settlement_id": "settle-001", "status": "PENDING_SETTLEMENT" }
+
+
+GET /billing/settlements/{settlement_id}
+  Returns the status of a settlement.
+
+  Response 200:
+    {
+      "settlement_id": "settle-001",
+      "src_org": "Org1MSP",
+      "dst_org": "Org2MSP",
+      "amount": "2.50",
+      "currency": "GHS",
+      "status": "SETTLED",
+      "confirmed_at": "2026-01-15T11:30:00Z"
+    }
+
+
+--------------------------------------------------------------------------------
+EVENT STREAM ENDPOINT
+--------------------------------------------------------------------------------
+
+GET /events/stream
+  Server-Sent Events (SSE) stream of live forwarding events. Used by the
+  dashboard Event Timeline page.
+
+  Content-Type: text/event-stream
+
+  Event format:
+    data: {
+      "event_type": "uplink",
+      "gateway_eui": "AABBCCDDAABBCCDD",
+      "device_eui": "0011223344556677",
+      "rssi": -85,
+      "snr": 7.2,
+      "timestamp": "2026-01-15T10:00:00Z"
+    }
+
+  The stream stays open; the client receives an event for each forwarding
+  record as it arrives. The dashboard reconnects automatically on disconnect.
+
+
+--------------------------------------------------------------------------------
+ERROR RESPONSES
+--------------------------------------------------------------------------------
+
+All error responses follow the format:
+  { "detail": "Human-readable error message" }
+
+Common HTTP status codes:
+  200  OK
+  201  Created
+  400  Bad Request — malformed payload or missing required fields
+  404  Not Found — resource does not exist on the blockchain
+  422  Unprocessable Entity — Pydantic validation failure
+  503  Service Unavailable — blockchain or database is unreachable
+
+
+================================================================================
