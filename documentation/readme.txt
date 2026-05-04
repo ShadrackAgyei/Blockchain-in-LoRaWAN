@@ -28,7 +28,6 @@ The system consists of five main components:
   3. Python FastAPI webhook listener (bridges TTN events to the blockchain)
   4. MySQL database (event cache and audit trail)
   5. Next.js monitoring dashboard
-  6. Prometheus + Grafana for operational metrics
 
 
 --------------------------------------------------------------------------------
@@ -170,8 +169,6 @@ DIRECTORY STRUCTURE
   frontend/             Next.js monitoring dashboard
   config/
     mysql/              Database schema initialisation
-    prometheus/         Scrape configuration
-    grafana/            Dashboard provisioning
   scripts/              Automation scripts (setup, deploy, test)
   tests/                Evaluation and simulation scripts
   results/              Evaluation output (CSVs, charts)
@@ -232,8 +229,6 @@ KNOWN ISSUES AND WORKAROUNDS
 MONITORING
 --------------------------------------------------------------------------------
 
-  Grafana dashboard:  http://localhost:3001   (admin / admin)
-  Prometheus:         http://localhost:9090
   Webhook health:     http://localhost:8000/webhook/health
   Webhook metrics:    http://localhost:8000/metrics
 
@@ -258,7 +253,7 @@ CONTACT
 
   Shadrack Nti
   B.Sc. Computer Engineering, Ashesi University
-  Email: s.nti@ashesi.edu.gh
-  Supervisor: Prof. Nathan Amanquah
+  Email: shadrack.nti@ashesi.edu.gh
+  Supervisor: Dr. Nathan Amanquah
 
 ================================================================================
