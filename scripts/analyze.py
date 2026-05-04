@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 
-# Color scheme by profile
+# Color scheme by profile (used for other figures)
 PROFILE_COLORS = {
     "reliable": "#2ecc71",   # green
     "average": "#f39c12",    # yellow/orange
@@ -30,6 +30,18 @@ PROFILE_COLORS = {
 }
 
 PROFILE_ORDER = ["reliable", "average", "poor", "degrading"]
+
+# Per-gateway unique color + marker + linestyle — each entry is fully distinct
+_GW_STYLES = [
+    ("#1a9641", "o", "-"),    # dark green  / circle   / solid
+    ("#74c476", "^", "--"),   # light green / triangle / dashed
+    ("#00bcd4", "s", "-"),    # cyan        / square   / solid
+    ("#f39c12", "D", "--"),   # orange      / diamond  / dashed
+    ("#e74c3c", "v", "-."),   # red         / tri-down / dash-dot
+    ("#c0392b", "P", ":"),    # dark red    / plus     / dotted
+    ("#8e44ad", "*", "-"),    # purple      / star     / solid
+    ("#3498db", "X", "--"),   # blue        / X        / dashed
+]
 
 
 def load_data(results_dir: str) -> dict:
@@ -53,17 +65,16 @@ def fig1_trust_convergence(df: pd.DataFrame, out_dir: str):
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    for eui in df["gateway_eui"].unique():
+    for idx, eui in enumerate(df["gateway_eui"].unique()):
         gw_data = df[df["gateway_eui"] == eui].sort_values("round")
         profile = gw_data["profile"].iloc[0]
-        color = PROFILE_COLORS.get(profile, "#95a5a6")
         label = gw_data["gateway_name"].iloc[0] if "gateway_name" in gw_data.columns else eui[-8:]
-        linestyle = "--" if profile == "degrading" else "-"
+        color, marker, linestyle = _GW_STYLES[idx % len(_GW_STYLES)]
         ax.plot(
             gw_data["round"] + 1,  # 1-indexed for display
             gw_data["trust_score"],
             color=color, linestyle=linestyle,
-            marker="o", markersize=4, linewidth=1.5,
+            marker=marker, markersize=5, linewidth=1.5,
             label=f"{label} ({profile})",
         )
 
